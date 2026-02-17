@@ -1,0 +1,164 @@
+package com.kuranty.callmonitor
+
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
+import android.widget.Button
+import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.preference.PreferenceManager
+
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var statusText: TextView
+    private lateinit var btnToggle: Button
+    private lateinit var btnSettings: Button
+
+    private var callStateListener: CallStateListener? = null
+    private var isMonitoring = false
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.all { it.value }
+        if (allGranted) {
+            checkOverlayPermission()
+        } else {
+            Toast.makeText(this, "Необходимы разрешения для работы", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        statusText = findViewById(R.id.statusText)
+        btnToggle = findViewById(R.id.btnToggle)
+        btnSettings = findViewById(R.id.btnSettings)
+
+        btnToggle.setOnClickListener {
+            if (isMonitoring) stopMonitoring() else startMonitoring()
+        }
+
+        btnSettings.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+
+        checkConfiguration()
+    }
+
+    override fun onDestroy() {
+        callStateListener?.unregister()
+        super.onDestroy()
+    }
+
+    private fun checkConfiguration() {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        val folderId = prefs.getString("drive_folder_id", null)
+        if (folderId.isNullOrBlank()) {
+            statusText.text = "⚙️ Укажите Google Drive Folder ID в настройках"
+            btnToggle.isEnabled = false
+        } else {
+            statusText.text = "Готов к работе"
+            btnToggle.isEnabled = true
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        checkConfiguration()
+    }
+
+    private fun startMonitoring() {
+        if (!checkPermissions()) return
+
+        // Start call state listener
+        callStateListener = CallStateListener(this)
+        callStateListener?.register()
+
+        // Start recording watcher service
+        val watcherIntent = Intent(this, RecordingWatcher::class.java)
+        startForegroundService(watcherIntent)
+
+        isMonitoring = true
+        statusText.text = "✅ Мониторинг активен"
+        btnToggle.text = "Остановить мониторинг"
+
+        Toast.makeText(this, "Мониторинг звонков запущен", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun stopMonitoring() {
+        callStateListener?.unregister()
+        callStateListener = null
+
+        stopService(Intent(this, RecordingWatcher::class.java))
+        stopService(Intent(this, OverlayService::class.java))
+
+        isMonitoring = false
+        statusText.text = "⏸ Мониторинг остановлен"
+        btnToggle.text = "Начать мониторинг"
+    }
+
+    private fun checkPermissions(): Boolean {
+        val neededPermissions = mutableListOf<String>()
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            neededPermissions.add(Manifest.permission.READ_PHONE_STATE)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                neededPermissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
+        // Check storage access
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+                return false
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                neededPermissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+        }
+
+        if (neededPermissions.isNotEmpty()) {
+            permissionLauncher.launch(neededPermissions.toTypedArray())
+            return false
+        }
+
+        return checkOverlayPermission()
+    }
+
+    private fun checkOverlayPermission(): Boolean {
+        if (!Settings.canDrawOverlays(this)) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(intent)
+            Toast.makeText(this, "Разрешите наложение поверх других окон", Toast.LENGTH_LONG).show()
+            return false
+        }
+        return true
+    }
+}

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <EditTextPreference
+        android:key="drive_folder_id"
+        android:title="Google Drive Folder ID"
+        android:summary="ID папки на Google Drive для загрузки записей"
+        app:useSimpleSummaryProvider="true" />
+
+    <EditTextPreference
+        android:key="recording_path"
+        android:title="Папка записей MIUI"
+        android:defaultValue="/storage/emulated/0/MIUI/sound_recorder/call_rec"
+        app:useSimpleSummaryProvider="true" />
+
+    <EditTextPreference
+        android:key="reminder_text"
+        android:title="Текст напоминания"
+        android:defaultValue="⚠️ Напомните гостю:\n«Звонок записывается для улучшения качества обслуживания»"
+        app:useSimpleSummaryProvider="true" />
+
+</PreferenceScreen>
