@@ -22,9 +22,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnToggle: Button
     private lateinit var btnSettings: Button
 
-    private var callStateListener: CallStateListener? = null
-    private var isMonitoring = false
-
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -45,66 +42,60 @@ class MainActivity : AppCompatActivity() {
         btnSettings = findViewById(R.id.btnSettings)
 
         btnToggle.setOnClickListener {
-            if (isMonitoring) stopMonitoring() else startMonitoring()
+            if (MonitorService.isRunning(this)) stopMonitoring() else startMonitoring()
         }
 
         btnSettings.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
-
-        checkConfiguration()
-    }
-
-    override fun onDestroy() {
-        callStateListener?.unregister()
-        super.onDestroy()
-    }
-
-    private fun checkConfiguration() {
-        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-        val folderId = prefs.getString("drive_folder_id", null)
-        if (folderId.isNullOrBlank()) {
-            statusText.text = "⚙️ Укажите Google Drive Folder ID в настройках"
-            btnToggle.isEnabled = false
-        } else {
-            statusText.text = "Готов к работе"
-            btnToggle.isEnabled = true
-        }
     }
 
     override fun onResume() {
         super.onResume()
-        checkConfiguration()
+        updateUI()
+    }
+
+    private fun updateUI() {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        val folderId = prefs.getString("drive_folder_id", null)
+
+        if (folderId.isNullOrBlank()) {
+            statusText.text = "Укажите Google Drive Folder ID в настройках"
+            btnToggle.isEnabled = false
+            return
+        }
+
+        btnToggle.isEnabled = true
+
+        if (MonitorService.isRunning(this)) {
+            statusText.text = "Мониторинг активен"
+            btnToggle.text = "Остановить мониторинг"
+        } else {
+            statusText.text = "Готов к работе"
+            btnToggle.text = "Начать мониторинг"
+        }
     }
 
     private fun startMonitoring() {
         if (!checkPermissions()) return
 
-        // Start call state listener
-        callStateListener = CallStateListener(this)
-        callStateListener?.register()
-
-        // Start recording watcher service
-        val watcherIntent = Intent(this, RecordingWatcher::class.java)
-        startForegroundService(watcherIntent)
-
-        isMonitoring = true
-        statusText.text = "✅ Мониторинг активен"
-        btnToggle.text = "Остановить мониторинг"
+        val intent = Intent(this, MonitorService::class.java).apply {
+            action = MonitorService.ACTION_START
+        }
+        startForegroundService(intent)
 
         Toast.makeText(this, "Мониторинг звонков запущен", Toast.LENGTH_SHORT).show()
+        updateUI()
     }
 
     private fun stopMonitoring() {
-        callStateListener?.unregister()
-        callStateListener = null
+        val intent = Intent(this, MonitorService::class.java).apply {
+            action = MonitorService.ACTION_STOP
+        }
+        startService(intent)
 
-        stopService(Intent(this, RecordingWatcher::class.java))
-        stopService(Intent(this, OverlayService::class.java))
-
-        isMonitoring = false
-        statusText.text = "⏸ Мониторинг остановлен"
-        btnToggle.text = "Начать мониторинг"
+        Toast.makeText(this, "Мониторинг остановлен", Toast.LENGTH_SHORT).show()
+        updateUI()
     }
 
     private fun checkPermissions(): Boolean {
@@ -124,7 +115,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Check storage access
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!Environment.isExternalStorageManager()) {
                 val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {

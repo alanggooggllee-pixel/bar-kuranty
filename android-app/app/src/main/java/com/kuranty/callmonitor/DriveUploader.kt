@@ -8,25 +8,32 @@ import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.model.File as DriveFile
 import com.google.auth.http.HttpCredentialsAdapter
-import com.google.auth.oauth2.GoogleCredentials
+import com.google.auth.oauth2.UserCredentials
+import org.json.JSONObject
 import java.io.File
-import java.io.FileInputStream
 
 /**
  * Uploads audio files to a specified Google Drive folder
- * using a service account.
+ * using OAuth2 user credentials (refresh token).
  */
 class DriveUploader(private val context: Context) {
 
     companion object {
         private const val TAG = "DriveUploader"
         private const val APP_NAME = "KurantyCallMonitor"
+        private const val QUOTA_PROJECT = "gen-lang-client-0199868904"
     }
 
     private fun getDriveService(): Drive {
-        val credentialsStream = context.assets.open("service_account.json")
-        val credentials = GoogleCredentials.fromStream(credentialsStream)
-            .createScoped(listOf("https://www.googleapis.com/auth/drive.file"))
+        val credentialsStream = context.assets.open("oauth_credentials.json")
+        val json = JSONObject(credentialsStream.bufferedReader().readText())
+
+        val credentials = UserCredentials.newBuilder()
+            .setClientId(json.getString("client_id"))
+            .setClientSecret(json.getString("client_secret"))
+            .setRefreshToken(json.getString("refresh_token"))
+            .setQuotaProjectId(QUOTA_PROJECT)
+            .build()
 
         val transport = GoogleNetHttpTransport.newTrustedTransport()
         val jsonFactory = GsonFactory.getDefaultInstance()
@@ -48,6 +55,9 @@ class DriveUploader(private val context: Context) {
             file.name.endsWith(".wav") -> "audio/wav"
             file.name.endsWith(".m4a") -> "audio/mp4"
             file.name.endsWith(".aac") -> "audio/aac"
+            file.name.endsWith(".amr") -> "audio/amr"
+            file.name.endsWith(".3gp") -> "audio/3gpp"
+            file.name.endsWith(".ogg") -> "audio/ogg"
             else -> "audio/*"
         }
 
