@@ -6,18 +6,16 @@ import android.content.Intent
 import android.util.Log
 
 /**
- * Restarts monitoring after device reboot if it was active before.
+ * Always restarts monitoring after device reboot.
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            if (MonitorService.isRunning(context)) {
-                Log.i("BootReceiver", "Device booted, restarting monitoring")
-                val serviceIntent = Intent(context, MonitorService::class.java).apply {
-                    action = MonitorService.ACTION_START
-                }
-                context.startForegroundService(serviceIntent)
+            Log.i("BootReceiver", "Device booted — starting monitoring")
+            val serviceIntent = Intent(context, MonitorService::class.java).apply {
+                action = MonitorService.ACTION_START
             }
+            context.startForegroundService(serviceIntent)
         }
     }
 }

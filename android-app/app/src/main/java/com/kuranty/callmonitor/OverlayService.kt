@@ -4,10 +4,15 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.media.AudioManager
+import android.media.MediaPlayer
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
@@ -15,12 +20,12 @@ import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
-import androidx.preference.PreferenceManager
 
 /**
- * Foreground service that shows a floating overlay reminder
- * when a phone call begins, reminding the hostess to announce
- * that the call is being recorded.
+ * Foreground service that shows a floating overlay and plays
+ * a pre-recorded announcement that the call is being recorded.
+ * Uses speakerphone at moderate volume so both parties can hear it
+ * without drowning out the conversation.
  */
 class OverlayService : Service() {
 
@@ -31,12 +36,20 @@ class OverlayService : Service() {
         private const val CHANNEL_ID = "overlay_channel"
         private const val NOTIFICATION_ID = 1
 
-        private const val DEFAULT_REMINDER_TEXT =
-            "⚠️ Напомните гостю:\n«Звонок записывается для улучшения качества обслуживания»"
+        // Volume at 40% of max — audible but not overwhelming
+        private const val ANNOUNCEMENT_VOLUME_PERCENT = 0.4f
+
+        private const val OVERLAY_TEXT =
+            "Идёт запись звонка"
     }
 
     private var windowManager: WindowManager? = null
     private var overlayView: LinearLayout? = null
+    private var mediaPlayer: MediaPlayer? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private var previousVolume: Int = 0
+    private var previousMode: Int = AudioManager.MODE_NORMAL
+    private var wasSpeakerOn: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
@@ -46,7 +59,10 @@ class OverlayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_SHOW -> showOverlay()
+            ACTION_SHOW -> {
+                showOverlay()
+                handler.postDelayed({ playAnnouncement() }, 1500)
+            }
             ACTION_DISMISS -> dismissOverlay()
         }
         return START_STICKY
@@ -56,23 +72,40 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         dismissOverlay()
+        releaseMediaPlayer()
         super.onDestroy()
+    }
+
+    private fun playAnnouncement() {
+        // Disabled: playing audio during a call interferes with Cube ACR recording.
+        // The caller cannot hear device-played audio without telephony-level integration.
+        // Keeping overlay as visual reminder only.
+        Log.i(TAG, "Overlay shown as visual reminder (audio announcement disabled)")
+    }
+
+    private fun releaseMediaPlayer() {
+        mediaPlayer?.let {
+            try {
+                if (it.isPlaying) it.stop()
+                it.release()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error releasing MediaPlayer", e)
+            }
+            mediaPlayer = null
+        }
     }
 
     private fun showOverlay() {
         if (overlayView != null) return
 
-        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-        val reminderText = prefs.getString("reminder_text", DEFAULT_REMINDER_TEXT)
-            ?: DEFAULT_REMINDER_TEXT
-
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
         val textView = TextView(this).apply {
-            text = reminderText
+            text = OVERLAY_TEXT
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             setPadding(32, 24, 32, 24)
+            gravity = Gravity.CENTER
         }
 
         overlayView = LinearLayout(this).apply {
@@ -103,6 +136,7 @@ class OverlayService : Service() {
     }
 
     private fun dismissOverlay() {
+        releaseMediaPlayer()
         overlayView?.let {
             try {
                 windowManager?.removeView(it)

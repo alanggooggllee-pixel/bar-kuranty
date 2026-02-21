@@ -12,22 +12,17 @@ import androidx.core.app.NotificationCompat
 import androidx.preference.PreferenceManager
 
 /**
- * Persistent foreground service that manages call monitoring and recording watcher.
- * Lives independently of the Activity — survives activity destruction.
+ * Always-on foreground service that manages call monitoring and recording watcher.
+ * Cannot be stopped by the user — only by uninstalling the app.
+ * Auto-starts on boot and restarts if killed by the system.
  */
 class MonitorService : Service() {
 
     companion object {
         const val ACTION_START = "com.kuranty.callmonitor.START_MONITOR"
-        const val ACTION_STOP = "com.kuranty.callmonitor.STOP_MONITOR"
         private const val TAG = "MonitorService"
         private const val CHANNEL_ID = "monitor_channel"
         private const val NOTIFICATION_ID = 3
-
-        fun isRunning(context: android.content.Context): Boolean {
-            val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-            return prefs.getBoolean("monitoring_active", false)
-        }
     }
 
     private var callStateListener: CallStateListener? = null
@@ -38,29 +33,43 @@ class MonitorService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_START -> startMonitoring()
-            ACTION_STOP -> {
-                stopMonitoring()
-                stopSelf()
-            }
-        }
+        startMonitoring()
         return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        stopMonitoring()
+        Log.w(TAG, "Service destroyed — scheduling restart")
+        callStateListener?.unregister()
+        callStateListener = null
+
+        // Restart the service immediately
+        val restartIntent = Intent(applicationContext, MonitorService::class.java).apply {
+            action = ACTION_START
+        }
+        applicationContext.startForegroundService(restartIntent)
+
         super.onDestroy()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.w(TAG, "Task removed — restarting service")
+        val restartIntent = Intent(applicationContext, MonitorService::class.java).apply {
+            action = ACTION_START
+        }
+        applicationContext.startForegroundService(restartIntent)
+        super.onTaskRemoved(rootIntent)
     }
 
     private fun startMonitoring() {
         startForeground(NOTIFICATION_ID, buildNotification())
 
-        // Register call state listener
-        callStateListener = CallStateListener(this)
-        callStateListener?.register()
+        // Register call state listener (if not already registered)
+        if (callStateListener == null) {
+            callStateListener = CallStateListener(this)
+            callStateListener?.register()
+        }
 
         // Start recording watcher
         val watcherIntent = Intent(this, RecordingWatcher::class.java)
@@ -71,19 +80,6 @@ class MonitorService : Service() {
             .edit().putBoolean("monitoring_active", true).apply()
 
         Log.i(TAG, "Monitoring started")
-    }
-
-    private fun stopMonitoring() {
-        callStateListener?.unregister()
-        callStateListener = null
-
-        stopService(Intent(this, RecordingWatcher::class.java))
-        stopService(Intent(this, OverlayService::class.java))
-
-        PreferenceManager.getDefaultSharedPreferences(this)
-            .edit().putBoolean("monitoring_active", false).apply()
-
-        Log.i(TAG, "Monitoring stopped")
     }
 
     private fun createNotificationChannel() {

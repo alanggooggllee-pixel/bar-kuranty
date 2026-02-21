@@ -19,7 +19,6 @@ import androidx.preference.PreferenceManager
 class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
-    private lateinit var btnToggle: Button
     private lateinit var btnSettings: Button
 
     private val permissionLauncher = registerForActivityResult(
@@ -38,21 +37,21 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         statusText = findViewById(R.id.statusText)
-        btnToggle = findViewById(R.id.btnToggle)
         btnSettings = findViewById(R.id.btnSettings)
-
-        btnToggle.setOnClickListener {
-            if (MonitorService.isRunning(this)) stopMonitoring() else startMonitoring()
-        }
 
         btnSettings.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+
+        // Auto-start monitoring if configured
+        autoStartMonitoring()
     }
 
     override fun onResume() {
         super.onResume()
         updateUI()
+        // Always try to start monitoring on resume
+        autoStartMonitoring()
     }
 
     private fun updateUI() {
@@ -61,41 +60,22 @@ class MainActivity : AppCompatActivity() {
 
         if (folderId.isNullOrBlank()) {
             statusText.text = "Укажите Google Drive Folder ID в настройках"
-            btnToggle.isEnabled = false
-            return
-        }
-
-        btnToggle.isEnabled = true
-
-        if (MonitorService.isRunning(this)) {
-            statusText.text = "Мониторинг активен"
-            btnToggle.text = "Остановить мониторинг"
         } else {
-            statusText.text = "Готов к работе"
-            btnToggle.text = "Начать мониторинг"
+            statusText.text = "Мониторинг активен"
         }
     }
 
-    private fun startMonitoring() {
+    private fun autoStartMonitoring() {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        val folderId = prefs.getString("drive_folder_id", null)
+
+        if (folderId.isNullOrBlank()) return
         if (!checkPermissions()) return
 
         val intent = Intent(this, MonitorService::class.java).apply {
             action = MonitorService.ACTION_START
         }
         startForegroundService(intent)
-
-        Toast.makeText(this, "Мониторинг звонков запущен", Toast.LENGTH_SHORT).show()
-        updateUI()
-    }
-
-    private fun stopMonitoring() {
-        val intent = Intent(this, MonitorService::class.java).apply {
-            action = MonitorService.ACTION_STOP
-        }
-        startService(intent)
-
-        Toast.makeText(this, "Мониторинг остановлен", Toast.LENGTH_SHORT).show()
-        updateUI()
     }
 
     private fun checkPermissions(): Boolean {
