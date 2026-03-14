@@ -6,6 +6,7 @@ import json
 import logging
 
 import functions_framework
+from google.cloud import storage as cloud_storage
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
@@ -18,7 +19,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
-PROCESSED_FILE = "/tmp/processed_files.json"
+GCS_BUCKET = os.environ.get("GCS_BUCKET", "kuranty-call-monitor")
+GCS_PROCESSED_BLOB = "processed_files.json"
 
 
 def get_drive_service():
@@ -36,18 +38,28 @@ def get_drive_service():
 
 
 def load_processed_ids() -> set:
-    """Load set of already-processed file IDs."""
+    """Load processed file IDs from Google Cloud Storage."""
     try:
-        with open(PROCESSED_FILE) as f:
-            return set(json.load(f))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return set()
+        client = cloud_storage.Client()
+        bucket = client.bucket(GCS_BUCKET)
+        blob = bucket.blob(GCS_PROCESSED_BLOB)
+        if blob.exists():
+            data = blob.download_as_text()
+            return set(json.loads(data))
+    except Exception as e:
+        logger.warning("Failed to load processed IDs from GCS: %s", e)
+    return set()
 
 
 def save_processed_ids(ids: set) -> None:
-    """Persist processed file IDs."""
-    with open(PROCESSED_FILE, "w") as f:
-        json.dump(list(ids), f)
+    """Persist processed file IDs to Google Cloud Storage."""
+    try:
+        client = cloud_storage.Client()
+        bucket = client.bucket(GCS_BUCKET)
+        blob = bucket.blob(GCS_PROCESSED_BLOB)
+        blob.upload_from_string(json.dumps(list(ids)), content_type="application/json")
+    except Exception as e:
+        logger.error("Failed to save processed IDs to GCS: %s", e)
 
 
 def list_new_recordings(service, folder_id: str, processed_ids: set) -> list:

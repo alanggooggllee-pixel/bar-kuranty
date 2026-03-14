@@ -16,6 +16,9 @@ class BootReceiver : BroadcastReceiver() {
                 action = MonitorService.ACTION_START
             }
             context.startForegroundService(serviceIntent)
+
+            // Schedule watchdog
+            WatchdogReceiver.schedule(context)
         }
     }
 }

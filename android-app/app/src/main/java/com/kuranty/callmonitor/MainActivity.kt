@@ -76,6 +76,9 @@ class MainActivity : AppCompatActivity() {
             action = MonitorService.ACTION_START
         }
         startForegroundService(intent)
+
+        // Schedule watchdog to restart monitoring if killed by MIUI
+        WatchdogReceiver.schedule(this)
     }
 
     private fun checkPermissions(): Boolean {
