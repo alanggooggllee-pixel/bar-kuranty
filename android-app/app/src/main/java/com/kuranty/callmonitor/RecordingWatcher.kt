@@ -34,7 +34,7 @@ class RecordingWatcher : Service() {
         private const val POLL_INTERVAL_MS = 15_000L // 15 seconds
 
         val DEFAULT_RECORDING_PATH: String =
-            "${Environment.getExternalStorageDirectory()}/Documents/CubeCallRecorder/All"
+            "${Environment.getExternalStorageDirectory()}/Recordings/ACRPhone"
     }
 
     private var fileObserver: FileObserver? = null
@@ -71,8 +71,15 @@ class RecordingWatcher : Service() {
 
     private fun startWatching() {
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-        recordingPath = prefs.getString("recording_path", DEFAULT_RECORDING_PATH)
-            ?: DEFAULT_RECORDING_PATH
+        val savedPath = prefs.getString("recording_path", null)
+
+        // Auto-migrate from old Cube ACR path to ACR Phone path
+        if (savedPath == null || savedPath.contains("CubeCallRecorder") || savedPath.contains("MIUI") || savedPath.contains("ACRCalls")) {
+            prefs.edit().putString("recording_path", DEFAULT_RECORDING_PATH).apply()
+            recordingPath = DEFAULT_RECORDING_PATH
+        } else {
+            recordingPath = savedPath
+        }
 
         val dir = File(recordingPath)
         if (!dir.exists()) {
@@ -121,14 +128,28 @@ class RecordingWatcher : Service() {
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
         val uploadedSet = prefs.getStringSet("uploaded_files", emptySet()) ?: emptySet()
 
-        val files = dir.listFiles()
-        Log.d(TAG, "Directory ${dir.absolutePath} contains ${files?.size ?: 0} files")
+        // Recursively find audio files in subdirectories (ACR Phone uses YYYY/MM/DD structure)
+        val audioFiles = mutableListOf<File>()
+        findAudioFilesRecursive(dir, audioFiles)
 
-        files?.filter { file ->
-            file.isFile && isAudioFile(file.name) && file.name !in uploadedSet && file.length() > 0
-        }?.forEach { file ->
+        Log.d(TAG, "Found ${audioFiles.size} audio files in ${dir.absolutePath} (recursive)")
+
+        audioFiles.filter { file ->
+            file.absolutePath !in uploadedSet && file.length() > 0
+        }.forEach { file ->
             Log.i(TAG, "Found unuploaded recording: ${file.name} (${file.length()} bytes)")
             uploadFileIfNew(file)
+        }
+    }
+
+    private fun findAudioFilesRecursive(dir: File, result: MutableList<File>) {
+        val files = dir.listFiles() ?: return
+        for (file in files) {
+            if (file.isDirectory) {
+                findAudioFilesRecursive(file, result)
+            } else if (file.isFile && isAudioFile(file.name)) {
+                result.add(file)
+            }
         }
     }
 
@@ -136,19 +157,19 @@ class RecordingWatcher : Service() {
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
         val uploadedSet = prefs.getStringSet("uploaded_files", emptySet()) ?: emptySet()
 
-        if (file.name in uploadedSet) return
+        if (file.absolutePath in uploadedSet) return
 
         scope.launch {
             try {
-                Log.i(TAG, "Uploading: ${file.name} (${file.length()} bytes)")
+                Log.i(TAG, "Uploading: ${file.absolutePath} (${file.length()} bytes)")
                 val uploader = DriveUploader(this@RecordingWatcher)
                 uploader.uploadFile(file)
 
-                // Mark as uploaded
+                // Mark as uploaded using absolute path (files are in date subdirectories)
                 val currentUploaded = PreferenceManager.getDefaultSharedPreferences(this@RecordingWatcher)
                     .getStringSet("uploaded_files", mutableSetOf())
                     ?.toMutableSet() ?: mutableSetOf()
-                currentUploaded.add(file.name)
+                currentUploaded.add(file.absolutePath)
                 PreferenceManager.getDefaultSharedPreferences(this@RecordingWatcher)
                     .edit().putStringSet("uploaded_files", currentUploaded).apply()
 

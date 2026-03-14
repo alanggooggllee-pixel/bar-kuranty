@@ -63,7 +63,7 @@ def list_new_recordings(service, folder_id: str, processed_ids: set) -> list:
         .execute()
     )
     files = results.get("files", [])
-    return [f for f in files if f["id"] not in processed_ids]
+    return [f for f in files if f["id"] not in processed_ids and f["name"].endswith(".m4a")]
 
 
 def download_file(service, file_id: str) -> bytes:
@@ -88,13 +88,14 @@ def process_recording(service, file_info: dict) -> None:
     logger.info("Downloaded %s (%d bytes)", filename, len(audio_content))
 
     transcript = transcribe_audio(audio_content, filename)
-    if not transcript:
-        logger.warning("Empty transcript for %s, skipping", filename)
+    if not transcript or len(transcript) < 20:
+        logger.warning("Empty or too short transcript for %s (%d chars), skipping",
+                        filename, len(transcript) if transcript else 0)
         return
 
     analysis = analyze_transcript(transcript)
 
-    send_report(analysis, filename)
+    send_report(transcript, analysis, filename)
     logger.info("Completed processing: %s", filename)
 
 

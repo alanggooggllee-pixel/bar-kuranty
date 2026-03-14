@@ -51,7 +51,7 @@ def _transcribe_with_gemini(audio_content: bytes, filename: str) -> str:
 
     import time
     for attempt in range(3):
-        response = requests.post(url, json=payload, timeout=120)
+        response = requests.post(url, json=payload, timeout=180)
         if response.status_code == 429:
             wait = 10 * (attempt + 1)
             logger.warning("Rate limited, waiting %ds (attempt %d/3)", wait, attempt + 1)
@@ -59,7 +59,18 @@ def _transcribe_with_gemini(audio_content: bytes, filename: str) -> str:
             continue
         response.raise_for_status()
         data = response.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+        candidates = data.get("candidates", [])
+        if not candidates:
+            logger.warning("Gemini returned no candidates for %s", filename)
+            return ""
+        content = candidates[0].get("content", {})
+        parts = content.get("parts", [])
+        if not parts or "text" not in parts[0]:
+            finish_reason = candidates[0].get("finishReason", "unknown")
+            logger.warning("Gemini returned no text (finishReason=%s) for %s", finish_reason, filename)
+            return ""
+        return parts[0]["text"].strip()
 
     response.raise_for_status()
 

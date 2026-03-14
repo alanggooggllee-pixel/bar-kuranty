@@ -10,13 +10,14 @@ logger = logging.getLogger(__name__)
 MAX_MESSAGE_LENGTH = 4096
 
 
-def send_report(analysis: str, filename: str) -> None:
-    """Send call analysis report to Telegram chat."""
+def send_report(transcript: str, analysis: str, filename: str) -> None:
+    """Send call transcript and analysis report to Telegram chat."""
     bot_token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat_id = os.environ["TELEGRAM_CHAT_ID"]
 
     header = f"📞 Анализ звонка\n📁 {filename}\n{'—' * 30}\n\n"
-    message = header + analysis
+    transcript_section = f"🎙 Транскрипт:\n{transcript}\n\n{'—' * 30}\n\n"
+    message = header + transcript_section + analysis
 
     if len(message) > MAX_MESSAGE_LENGTH:
         message = message[: MAX_MESSAGE_LENGTH - 3] + "..."
